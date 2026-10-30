@@ -1,0 +1,38 @@
+# Publish a release from a staging branch. A push to stage/<tag> carries the downloads (large files split into
+# parts under 100 MB, as git requires), SHA256SUMS and NOTES.md. This workflow joins the parts, checks every file
+# against SHA256SUMS, publishes the Release <tag> with this repository's own token, and deletes the branch.
+name: publish
+
+on:
+  push:
+    branches: ['stage/**']
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Join the parts and check every file
+        run: |
+          set -euo pipefail
+          cd files
+          for first in *.part-000; do
+            f="${first%.part-000}"
+            cat "$f".part-* > "$f"
+            rm "$f".part-*
+          done
+          sha256sum -c SHA256SUMS
+          ls -la
+      - name: Publish the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#stage/}"
+          cd files
+          gh release create "$tag" $(ls | grep -v '^NOTES.md$') --repo "$GITHUB_REPOSITORY" --target main --title "OpsProof $tag" --notes-file NOTES.md
+      - name: Delete the staging branch
+        run: git push origin --delete "$GITHUB_REF_NAME"
